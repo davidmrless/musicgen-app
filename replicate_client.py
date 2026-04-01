@@ -10,8 +10,8 @@ load_dotenv()
 os.environ.setdefault("REPLICATE_API_TOKEN", os.environ.get("REPLICATE_API_TOKEN", ""))
 
 # Modelo y costo estimado por generación
-_MODEL      = "meta/musicgen"
-_MODEL_VER  = "melody"
+_MODEL      = "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb"
+_MODEL_VER  = "stereo-melody-large"
 _DURATION   = 30
 _COST_USD   = 0.0035  # Ajustar según métricas reales de facturación
 
@@ -35,7 +35,7 @@ def generate_music(wav_bytes: bytes, prompt: str) -> tuple[bool, str | None, flo
         output = replicate.run(
             f"{_MODEL}",
             input={
-                "melody":        melody_buffer,
+                "input_audio":   melody_buffer,
                 "prompt":        prompt,
                 "duration":      _DURATION,
                 "model_version": _MODEL_VER,
