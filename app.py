@@ -1,6 +1,7 @@
 import streamlit as st
 from dotenv import load_dotenv
 from auth import login_user, register_user
+from admin import show_admin_panel
 
 # ---------------------------------------------------------------------------
 # 1. Carga de variables de entorno
@@ -25,6 +26,7 @@ DEFAULTS = {
     "username": None,
     "is_admin": False,
     "credits": 0,
+    "show_admin": False,
 }
 
 for key, value in DEFAULTS.items():
@@ -100,11 +102,57 @@ def show_auth_page():
 
 
 # ---------------------------------------------------------------------------
-# 5. App principal (placeholder — se implementa en prompts posteriores)
+# 5. App principal
 # ---------------------------------------------------------------------------
 
-def show_main_app():
+CREDIT_LIMIT = 3  # Máximo de generaciones por día por usuario
+
+
+def _build_sidebar():
+    """Renderiza el sidebar de navegación y gestión de sesión."""
+    with st.sidebar:
+        st.markdown("## 🎵 MelodyGen")
+        st.markdown(f"### Hola, **{st.session_state['username']}** 👋")
+        st.divider()
+
+        # ── Métricas de créditos ──────────────────────────────────────────
+        used      = st.session_state["credits"]
+        remaining = max(0, CREDIT_LIMIT - used)
+        col1, col2 = st.columns(2)
+        col1.metric("Usados hoy",   used)
+        col2.metric("Disponibles",  remaining)
+
+        st.divider()
+
+        # ── Panel de administrador (solo admins) ──────────────────────────
+        if st.session_state["is_admin"]:
+            if st.button("🛠️ Panel Admin", use_container_width=True):
+                st.session_state["show_admin"] = True
+            if st.session_state["show_admin"]:
+                if st.button("◀ Volver al generador", use_container_width=True):
+                    st.session_state["show_admin"] = False
+            st.divider()
+
+        # ── Cerrar sesión ─────────────────────────────────────────────────
+        if st.button("🚪 Cerrar sesión", use_container_width=True, type="secondary"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
+
+def show_generation_flow():
+    """Placeholder — se implementa en el Prompt 7.2."""
     pass
+
+
+def show_main_app():
+    """Punto de entrada de la app autenticada: sidebar + enrutamiento."""
+    _build_sidebar()
+
+    if st.session_state.get("show_admin"):
+        show_admin_panel()
+    else:
+        show_generation_flow()
 
 
 # ---------------------------------------------------------------------------
