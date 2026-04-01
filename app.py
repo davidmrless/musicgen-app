@@ -1,11 +1,13 @@
 import io
+import requests
+from datetime import datetime
 import soundfile as sf
 import streamlit as st
 from dotenv import load_dotenv
 from auth import login_user, register_user
 from admin import show_admin_panel
 from audio_processing import process_audio, trim_audio, get_audio_duration
-from music_analysis import get_bpm
+from music_analysis import get_bpm, get_pitch_curve, create_piano_roll_chart
 
 # ---------------------------------------------------------------------------
 # 1. Carga de variables de entorno
@@ -205,6 +207,81 @@ def show_generation_flow():
         start_sec = 0.0
 
     st.session_state["start_sec"] = start_sec
+
+    st.divider()
+
+    # ── Análisis de melodía (pitch curve + piano roll) ───────────────────
+    if st.button("🎹 Analizar melodía", use_container_width=False):
+        with st.spinner("🔍 Extrayendo pitch…"):
+            times, freqs, notes = get_pitch_curve(audio, sr)
+        if times is not None:
+            st.session_state["pitch_times"]  = times
+            st.session_state["pitch_freqs"]  = freqs
+            st.session_state["pitch_notes"]  = notes
+        else:
+            st.warning("⚠️ No se pudo extraer el pitch del audio.")
+
+    if st.session_state.get("pitch_times") is not None:
+        fig = create_piano_roll_chart(
+            st.session_state["pitch_times"],
+            st.session_state["pitch_freqs"],
+            st.session_state["pitch_notes"],
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+
+    # ── Prompt de texto ─────────────────────────────────────────────────
+    st.text_area(
+        "✍️ Describe el sonido que buscas",
+        placeholder=(
+            "Ejemplos:\n"
+            "\u2022 Lo-fi hip hop con piano suave y lluvia de fondo\n"
+            "\u2022 Ambient electrónico oscuro con sintetizadores evocadores\n"
+            "\u2022 Jazz acelerado estilo bebop con trompeta prominente"
+        ),
+        key="prompt_text",
+        height=120,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 6. Resultado de generación
+# ---------------------------------------------------------------------------
+
+def show_result(output_url: str, prompt_text: str) -> None:
+    """
+    Muestra el audio generado y habilita su descarga.
+
+    Intenta descargar los bytes vía requests para ofrecer un botón de
+    descarga nativo. Si falla, cae a reproducir la URL directamente
+    desde el CDN de Replicate.
+    """
+    st.markdown("#### 🎶 Música generada")
+
+    try:
+        response = requests.get(output_url, timeout=30)
+        response.raise_for_status()
+        audio_bytes = response.content
+        st.session_state["result_audio_bytes"] = audio_bytes
+
+        st.audio(audio_bytes, format="audio/wav")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        st.download_button(
+            label="⬇️ Descargar canción",
+            data=audio_bytes,
+            file_name=f"melodygen_{timestamp}.wav",
+            mime="audio/wav",
+            use_container_width=True,
+        )
+
+    except Exception as e:
+        print(f"[show_result] download error: {e}")
+        st.audio(output_url)
+        st.warning("⚠️ Descarga no disponible, pero puedes escucharla arriba.")
+
+    st.caption(f'💬 Prompt: *"{prompt_text}"*')
 
 
 def show_main_app():
