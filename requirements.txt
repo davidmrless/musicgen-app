@@ -1,0 +1,13 @@
+streamlit
+supabase
+python-dotenv
+librosa
+pydub
+noisereduce
+soundfile
+numpy
+pandas
+plotly
+replicate
+bcrypt
+requests
