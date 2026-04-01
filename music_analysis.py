@@ -114,6 +114,19 @@ def create_piano_roll_chart(
     f_voiced  = frequencies[mask]
     n_voiced  = [n for n, m in zip(notes, mask) if m]
 
+    # ── Guard: sin notas detectadas ─────────────────────────────────────────
+    if len(f_voiced) == 0:
+        empty_fig = go.Figure()
+        empty_fig.update_layout(
+            title=dict(
+                text="🎹 Melodía (No se detectaron notas musicales claras)",
+                font=dict(color=_FONT_CLR),
+            ),
+            paper_bgcolor=_DARK_BG,
+            plot_bgcolor=_DARK_BG,
+        )
+        return empty_fig
+
     # ── 2. Submuestreo ligero (downsample 4×) ─────────────────────────────
     t_ds = t_voiced[::_DOWNSAMPLE]
     f_ds = f_voiced[::_DOWNSAMPLE]
@@ -130,9 +143,8 @@ def create_piano_roll_chart(
             colorscale="Viridis",
             showscale=True,
             colorbar=dict(
-                title="Hz",
+                title=dict(text="Hz", font=dict(color=_FONT_CLR)),
                 tickfont=dict(color=_FONT_CLR),
-                titlefont=dict(color=_FONT_CLR),
             ),
         ),
         text=[f"{n} — {f:.1f} Hz" for n, f in zip(n_ds, f_ds)],

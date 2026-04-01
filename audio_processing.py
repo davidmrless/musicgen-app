@@ -2,25 +2,23 @@ import io
 import numpy as np
 import soundfile as sf
 import librosa
-import noisereduce as nr
 
 TARGET_SR: int = 32_000  # Hz requeridos por MusicGen-Melody
 
 
-def process_audio(file_bytes: bytes) -> tuple[np.ndarray | None, int | None]:
+def process_audio(file_bytes: bytes) -> tuple[bytes | None, np.ndarray | None, int | None]:
     """
-    Pipeline de limpieza y normalización de audio.
+    Pipeline de carga y preparación de audio.
 
     Pasos:
         1. Carga desde bytes (formato agnóstico vía soundfile).
         2. Conversión a mono si es estéreo.
-        3. Reducción de ruido (noisereduce).
-        4. Normalización de amplitud (librosa.util.normalize).
-        5. Resampleo a TARGET_SR (32 000 Hz) si es necesario.
+        3. Resampleo a TARGET_SR (32 000 Hz) si es necesario.
+        4. Exporta a bytes WAV en memoria.
 
     Retorna:
-        (audio_array, sample_rate)  → éxito
-        (None, None)                → cualquier error
+        (wav_bytes, audio_array, sample_rate)  → éxito
+        (None, None, None)                     → cualquier error
     """
     try:
         # ── 1. Carga desde bytes ──────────────────────────────────────────
@@ -29,26 +27,32 @@ def process_audio(file_bytes: bytes) -> tuple[np.ndarray | None, int | None]:
 
         # ── 2. Conversión a mono ──────────────────────────────────────────
         if audio.ndim == 2:
-            # shape (samples, channels) → promedio de canales
             audio = audio.mean(axis=1)
 
         # ── 3. Reducción de ruido ─────────────────────────────────────────
-        audio = nr.reduce_noise(y=audio, sr=sr)
+        # Desactivado: afecta negativamente grabaciones de voz y loops límpios
+        # audio = nr.reduce_noise(y=audio, sr=sr)
 
         # ── 4. Normalización de amplitud ──────────────────────────────────
-        # Escala al rango [-1, 1] evitando distorsión por picos aislados
-        audio = librosa.util.normalize(audio)
+        # Desactivado: puede distorsionar el carácter dinámico original
+        # audio = librosa.util.normalize(audio)
 
         # ── 5. Resampleo a 32 000 Hz ──────────────────────────────────────
         if sr != TARGET_SR:
             audio = librosa.resample(audio, orig_sr=sr, target_sr=TARGET_SR)
             sr = TARGET_SR
 
-        return audio, sr
+        # ── 6. Exportar a bytes WAV ───────────────────────────────────────
+        wav_buf = io.BytesIO()
+        sf.write(wav_buf, audio, sr, format="WAV", subtype="PCM_16")
+        wav_buf.seek(0)
+        wav_bytes = wav_buf.read()
+
+        return wav_bytes, audio, sr
 
     except Exception as e:
         print(f"[audio_processing] process_audio error: {e}")
-        return None, None
+        return None, None, None
 
 
 def get_audio_duration(audio: np.ndarray, sr: int) -> float:

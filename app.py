@@ -4,10 +4,13 @@ from datetime import datetime
 import soundfile as sf
 import streamlit as st
 from dotenv import load_dotenv
+from audio_recorder_streamlit import audio_recorder
 from auth import login_user, register_user
 from admin import show_admin_panel
 from audio_processing import process_audio, trim_audio, get_audio_duration
 from music_analysis import get_bpm, get_pitch_curve, create_piano_roll_chart
+from database import log_generation, update_credits
+from replicate_client import generate_music
 
 # ---------------------------------------------------------------------------
 # 1. Carga de variables de entorno
@@ -121,12 +124,13 @@ def _build_sidebar():
         st.markdown(f"### Hola, **{st.session_state['username']}** 👋")
         st.divider()
 
-        # ── Métricas de créditos ──────────────────────────────────────────
+        # ── Métricas de créditos ─────────────────────────────────────────────────
+        is_admin  = st.session_state.get("is_admin", False)
         used      = st.session_state["credits"]
-        remaining = max(0, CREDIT_LIMIT - used)
+        remaining = "∞" if is_admin else max(0, CREDIT_LIMIT - used)
         col1, col2 = st.columns(2)
-        col1.metric("Usados hoy",   used)
-        col2.metric("Disponibles",  remaining)
+        col1.metric("Usados hoy",  used)
+        col2.metric("Disponibles", remaining)
 
         st.divider()
 
@@ -147,91 +151,11 @@ def _build_sidebar():
 
 
 def show_generation_flow():
-    """Parte 1: carga de audio, limpieza, BPM y selección de fragmento."""
+    """Flujo principal: prompt de texto primero, melodía de referencia opcional."""
     st.title("🎵 Generador de Música")
-    st.markdown("Sube una melodía de referencia y describe el estilo musical que quieres generar.")
+    st.markdown("Describe el estilo musical que quieres crear. Subir una melodía de referencia es *opcional*.")
 
-    uploaded = st.file_uploader(
-        "Sube tu archivo de audio",
-        type=["wav", "mp3", "m4a", "ogg"],
-        help="Formatos soportados: WAV, MP3, M4A, OGG",
-    )
-
-    if uploaded is None:
-        st.info("👆 Sube un archivo de audio para comenzar.")
-        return
-
-    # ── Procesar solo si cambio el archivo (evita reprocesar en cada rerun) ─
-    file_id = uploaded.name + str(uploaded.size)
-    if st.session_state.get("_last_file_id") != file_id:
-        with st.spinner("🔄 Procesando audio…"):
-            audio, sr = process_audio(uploaded.read())
-
-        if audio is None:
-            st.error("❌ No se pudo procesar el archivo. Verifica el formato e inténtalo de nuevo.")
-            return
-
-        st.session_state["audio_array"]   = audio
-        st.session_state["sample_rate"]   = sr
-        st.session_state["_last_file_id"] = file_id
-
-    audio = st.session_state["audio_array"]
-    sr    = st.session_state["sample_rate"]
-
-    # ── Reproductor del audio procesado ─────────────────────────────────────────
-    st.markdown("#### 🔊 Audio procesado")
-    buf = io.BytesIO()
-    sf.write(buf, audio, sr, format="WAV")
-    buf.seek(0)
-    st.audio(buf, format="audio/wav")
-
-    # ── Duración y BPM ────────────────────────────────────────────────────
-    duration = get_audio_duration(audio, sr)
-    bpm      = get_bpm(audio, sr)
-
-    col_dur, col_bpm = st.columns(2)
-    col_dur.metric("⏱️ Duración", f"{duration:.1f} s")
-    col_bpm.metric("🥁 BPM detectado", bpm if bpm else "N/A")
-
-    # ── Selección del fragmento de 30 s ─────────────────────────────────────
-    if duration > 30:
-        start_sec = st.slider(
-            "Selecciona el inicio del fragmento (segundos)",
-            min_value=0.0,
-            max_value=float(int(duration - 30)),
-            value=float(st.session_state.get("start_sec", 0)),
-            step=1.0,
-            format="%.0f s",
-        )
-    else:
-        start_sec = 0.0
-
-    st.session_state["start_sec"] = start_sec
-
-    st.divider()
-
-    # ── Análisis de melodía (pitch curve + piano roll) ───────────────────
-    if st.button("🎹 Analizar melodía", use_container_width=False):
-        with st.spinner("🔍 Extrayendo pitch…"):
-            times, freqs, notes = get_pitch_curve(audio, sr)
-        if times is not None:
-            st.session_state["pitch_times"]  = times
-            st.session_state["pitch_freqs"]  = freqs
-            st.session_state["pitch_notes"]  = notes
-        else:
-            st.warning("⚠️ No se pudo extraer el pitch del audio.")
-
-    if st.session_state.get("pitch_times") is not None:
-        fig = create_piano_roll_chart(
-            st.session_state["pitch_times"],
-            st.session_state["pitch_freqs"],
-            st.session_state["pitch_notes"],
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.divider()
-
-    # ── Prompt de texto ─────────────────────────────────────────────────
+    # ── 1. Prompt de texto (elemento principal) ───────────────────────────
     st.text_area(
         "✍️ Describe el sonido que buscas",
         placeholder=(
@@ -243,6 +167,146 @@ def show_generation_flow():
         key="prompt_text",
         height=120,
     )
+
+    st.divider()
+
+    # ── 2. Melodía de referencia (opcional) ──────────────────────────────
+    audio_to_send: bytes | None = None
+
+    with st.expander("🎵 Añadir melodía de referencia (Opcional)", expanded=True):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**📂 Subir archivo**")
+            uploaded = st.file_uploader(
+                "Sube tu archivo de audio",
+                type=["wav", "mp3", "m4a", "ogg"],
+                help="Formatos soportados: WAV, MP3, M4A, OGG",
+                label_visibility="collapsed",
+            )
+
+        with col2:
+            st.markdown("**🎤 Grabar ahora**")
+            recorded_bytes = audio_recorder(
+                text="Clic para grabar/detener",
+                icon_size="2x",
+            )
+
+        # ── Elegir fuente: archivo tiene prioridad ────────────────────────
+        if uploaded is not None:
+            raw_audio_bytes = uploaded.read()
+            file_id = uploaded.name + str(uploaded.size)
+        elif recorded_bytes is not None:
+            raw_audio_bytes = recorded_bytes
+            file_id = "rec_" + str(len(recorded_bytes))
+        else:
+            raw_audio_bytes = None
+            file_id = None
+
+        if raw_audio_bytes is not None:
+            # ── Procesar solo si cambió la fuente ─────────────────────────
+            if st.session_state.get("_last_file_id") != file_id:
+                with st.spinner("🔄 Procesando audio…"):
+                    wav_bytes, audio, sr = process_audio(raw_audio_bytes)
+
+                if audio is None:
+                    st.error("❌ No se pudo procesar el audio. Verifica el formato e inténtalo de nuevo.")
+                else:
+                    st.session_state["wav_bytes"]      = wav_bytes
+                    st.session_state["audio_array"]   = audio
+                    st.session_state["sample_rate"]   = sr
+                    st.session_state["_last_file_id"] = file_id
+
+            if st.session_state.get("audio_array") is not None:
+                audio = st.session_state["audio_array"]
+                sr    = st.session_state["sample_rate"]
+
+                # ── Reproductor ───────────────────────────────────────────
+                st.markdown("#### 🔊 Audio procesado")
+                st.audio(st.session_state["wav_bytes"], format="audio/wav")
+
+                # ── Duración y BPM ────────────────────────────────────────
+                duration = get_audio_duration(audio, sr)
+                bpm      = get_bpm(audio, sr)
+                col_dur, col_bpm = st.columns(2)
+                col_dur.metric("⏱️ Duración", f"{duration:.1f} s")
+                col_bpm.metric("🥁 BPM detectado", bpm if bpm else "N/A")
+
+                # ── Slider de recorte ─────────────────────────────────────
+                if duration > 30:
+                    start_sec = st.slider(
+                        "Selecciona el inicio del fragmento (segundos)",
+                        min_value=0.0,
+                        max_value=float(int(duration - 30)),
+                        value=float(st.session_state.get("start_sec", 0)),
+                        step=1.0,
+                        format="%.0f s",
+                    )
+                else:
+                    start_sec = 0.0
+                st.session_state["start_sec"] = start_sec
+
+                # ── Análisis de melodía ───────────────────────────────────
+                if st.button("🎹 Analizar melodía", use_container_width=False):
+                    with st.spinner("🔍 Extrayendo pitch…"):
+                        times, freqs, notes = get_pitch_curve(audio, sr)
+                    if times is not None:
+                        st.session_state["pitch_times"] = times
+                        st.session_state["pitch_freqs"] = freqs
+                        st.session_state["pitch_notes"] = notes
+                    else:
+                        st.warning("⚠️ No se pudo extraer el pitch del audio.")
+
+                if st.session_state.get("pitch_times") is not None:
+                    fig = create_piano_roll_chart(
+                        st.session_state["pitch_times"],
+                        st.session_state["pitch_freqs"],
+                        st.session_state["pitch_notes"],
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                # ── Preparar bytes recortados para la API ─────────────────
+                _, wav_buf = trim_audio(audio, sr, start_sec=st.session_state.get("start_sec", 0.0))
+                audio_to_send = wav_buf.read()
+
+    st.divider()
+
+    # ── 3. Botón de generación (siempre visible) ──────────────────────────
+    if st.button("🚀 Generar música", type="primary", use_container_width=True):
+        # a. Guard de créditos diarios (admins tienen pase ilimitado)
+        is_admin = st.session_state.get("is_admin", False)
+        if st.session_state["credits"] >= CREDIT_LIMIT and not is_admin:
+            st.warning("⏱️ Límite diario alcanzado. Vuelve mañana para más generaciones.")
+            return
+
+        # b. Validar prompt
+        user_prompt = st.session_state.get("prompt_text", "").strip()
+        if not user_prompt:
+            st.warning("⚠️ Escribe una descripción antes de generar.")
+            return
+
+        # c. Llamada a la API
+        with st.spinner("🎵 Generando tu canción con IA…"):
+            success, output_url, cost = generate_music(
+                prompt=user_prompt,
+                wav_bytes=audio_to_send,
+            )
+
+        # d. Éxito
+        if success and output_url:
+            user_id     = st.session_state["user_id"]
+            new_credits = st.session_state["credits"] + 1
+
+            log_generation(user_id, user_prompt, cost, success=True)
+            st.session_state["credits"] = new_credits
+            update_credits(user_id, new_credits, datetime.now().date().isoformat())
+
+            show_result(output_url, user_prompt)
+            st.balloons()
+
+        # e. Fallo
+        else:
+            st.error("❌ Error al generar. Intenta de nuevo.")
 
 
 # ---------------------------------------------------------------------------
