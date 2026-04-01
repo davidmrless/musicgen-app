@@ -1,7 +1,11 @@
+import io
+import soundfile as sf
 import streamlit as st
 from dotenv import load_dotenv
 from auth import login_user, register_user
 from admin import show_admin_panel
+from audio_processing import process_audio, trim_audio, get_audio_duration
+from music_analysis import get_bpm
 
 # ---------------------------------------------------------------------------
 # 1. Carga de variables de entorno
@@ -141,8 +145,66 @@ def _build_sidebar():
 
 
 def show_generation_flow():
-    """Placeholder — se implementa en el Prompt 7.2."""
-    pass
+    """Parte 1: carga de audio, limpieza, BPM y selección de fragmento."""
+    st.title("🎵 Generador de Música")
+    st.markdown("Sube una melodía de referencia y describe el estilo musical que quieres generar.")
+
+    uploaded = st.file_uploader(
+        "Sube tu archivo de audio",
+        type=["wav", "mp3", "m4a", "ogg"],
+        help="Formatos soportados: WAV, MP3, M4A, OGG",
+    )
+
+    if uploaded is None:
+        st.info("👆 Sube un archivo de audio para comenzar.")
+        return
+
+    # ── Procesar solo si cambio el archivo (evita reprocesar en cada rerun) ─
+    file_id = uploaded.name + str(uploaded.size)
+    if st.session_state.get("_last_file_id") != file_id:
+        with st.spinner("🔄 Procesando audio…"):
+            audio, sr = process_audio(uploaded.read())
+
+        if audio is None:
+            st.error("❌ No se pudo procesar el archivo. Verifica el formato e inténtalo de nuevo.")
+            return
+
+        st.session_state["audio_array"]   = audio
+        st.session_state["sample_rate"]   = sr
+        st.session_state["_last_file_id"] = file_id
+
+    audio = st.session_state["audio_array"]
+    sr    = st.session_state["sample_rate"]
+
+    # ── Reproductor del audio procesado ─────────────────────────────────────────
+    st.markdown("#### 🔊 Audio procesado")
+    buf = io.BytesIO()
+    sf.write(buf, audio, sr, format="WAV")
+    buf.seek(0)
+    st.audio(buf, format="audio/wav")
+
+    # ── Duración y BPM ────────────────────────────────────────────────────
+    duration = get_audio_duration(audio, sr)
+    bpm      = get_bpm(audio, sr)
+
+    col_dur, col_bpm = st.columns(2)
+    col_dur.metric("⏱️ Duración", f"{duration:.1f} s")
+    col_bpm.metric("🥁 BPM detectado", bpm if bpm else "N/A")
+
+    # ── Selección del fragmento de 30 s ─────────────────────────────────────
+    if duration > 30:
+        start_sec = st.slider(
+            "Selecciona el inicio del fragmento (segundos)",
+            min_value=0.0,
+            max_value=float(int(duration - 30)),
+            value=float(st.session_state.get("start_sec", 0)),
+            step=1.0,
+            format="%.0f s",
+        )
+    else:
+        start_sec = 0.0
+
+    st.session_state["start_sec"] = start_sec
 
 
 def show_main_app():
