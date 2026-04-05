@@ -97,7 +97,7 @@ def show_auth_page():
                         st.error(msg)
 
 
-CREDIT_LIMIT = 3  # Máximo de generaciones por día por usuario
+CREDIT_LIMIT = 3
 
 
 def _build_sidebar():
