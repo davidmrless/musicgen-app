@@ -3,7 +3,7 @@ import numpy as np
 import soundfile as sf
 import librosa
 
-TARGET_SR: int = 32_000  # Hz requeridos por MusicGen-Melody
+TARGET_SR: int = 32_000
 
 
 def process_audio(file_bytes: bytes) -> tuple[bytes | None, np.ndarray | None, int | None]:
@@ -21,23 +21,14 @@ def process_audio(file_bytes: bytes) -> tuple[bytes | None, np.ndarray | None, i
         (None, None, None)                     → cualquier error
     """
     try:
-        # ── 1. Carga desde bytes ──────────────────────────────────────────
         buffer = io.BytesIO(file_bytes)
         audio, sr = sf.read(buffer, always_2d=False, dtype="float32")
 
-        # ── 2. Conversión a mono ──────────────────────────────────────────
         if audio.ndim == 2:
             audio = audio.mean(axis=1)
 
-        # ── 3. Reducción de ruido ─────────────────────────────────────────
-        # Desactivado: afecta negativamente grabaciones de voz y loops límpios
-        # audio = nr.reduce_noise(y=audio, sr=sr)
 
-        # ── 4. Normalización de amplitud ──────────────────────────────────
-        # Desactivado: puede distorsionar el carácter dinámico original
-        # audio = librosa.util.normalize(audio)
 
-        # ── 5. Resampleo a 32 000 Hz ──────────────────────────────────────
         if sr != TARGET_SR:
             audio = librosa.resample(audio, orig_sr=sr, target_sr=TARGET_SR)
             sr = TARGET_SR
@@ -79,22 +70,17 @@ def trim_audio(
         (trimmed_array, wav_bytes_buffer)
         El buffer ya tiene seek(0) aplicado, listo para lectura.
     """
-    # ── 1. Calcular índices de muestra ────────────────────────────────────
     start_sample = int(start_sec * sr)
     end_sample   = int((start_sec + duration) * sr)
 
-    # Clamp al tamaño real del array para evitar índices fuera de rango
     start_sample = max(0, min(start_sample, len(audio)))
     end_sample   = max(start_sample, min(end_sample, len(audio)))
 
-    # ── 2. Recorte del array ──────────────────────────────────────────────
     trimmed = audio[start_sample:end_sample]
 
-    # ── 3. Exportar a buffer WAV en memoria ───────────────────────────────
     wav_buffer = io.BytesIO()
     sf.write(wav_buffer, trimmed, sr, format="WAV", subtype="PCM_16")
 
-    # ── 4. Rebobinar el buffer para que sea legible ───────────────────────
     wav_buffer.seek(0)
 
     return trimmed, wav_buffer

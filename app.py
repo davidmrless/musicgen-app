@@ -12,23 +12,16 @@ from music_analysis import get_bpm, get_pitch_curve, create_piano_roll_chart
 from database import log_generation, update_credits
 from replicate_client import generate_music
 
-# ---------------------------------------------------------------------------
-# 1. Carga de variables de entorno
-# ---------------------------------------------------------------------------
+
 load_dotenv()
 
-# ---------------------------------------------------------------------------
-# 2. Configuración de la página
-# ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="🎵 MelodyGen",
     page_icon="🎵",
     layout="wide",
 )
 
-# ---------------------------------------------------------------------------
-# 3. Inicialización del estado de sesión
-# ---------------------------------------------------------------------------
+
 DEFAULTS = {
     "logged_in": False,
     "user_id": None,
@@ -42,12 +35,8 @@ for key, value in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
-# ---------------------------------------------------------------------------
-# 4. Página de autenticación
-# ---------------------------------------------------------------------------
 
 def show_auth_page():
-    # Encabezado centrado
     st.markdown(
         """
         <div style='text-align: center; padding: 2rem 0 1rem'>
@@ -65,7 +54,6 @@ def show_auth_page():
     with col:
         tab_login, tab_register = st.tabs(["Iniciar Sesión", "Registrarse"])
 
-        # ── Tab: Login ────────────────────────────────────────────────────
         with tab_login:
             with st.form("form_login"):
                 username = st.text_input("Usuario")
@@ -87,7 +75,6 @@ def show_auth_page():
                     else:
                         st.error(msg)
 
-        # ── Tab: Registro ─────────────────────────────────────────────────
         with tab_register:
             with st.form("form_register"):
                 new_username    = st.text_input("Usuario")
@@ -110,10 +97,6 @@ def show_auth_page():
                         st.error(msg)
 
 
-# ---------------------------------------------------------------------------
-# 5. App principal
-# ---------------------------------------------------------------------------
-
 CREDIT_LIMIT = 3  # Máximo de generaciones por día por usuario
 
 
@@ -124,7 +107,6 @@ def _build_sidebar():
         st.markdown(f"### Hola, **{st.session_state['username']}** 👋")
         st.divider()
 
-        # ── Métricas de créditos ─────────────────────────────────────────────────
         is_admin  = st.session_state.get("is_admin", False)
         used      = st.session_state["credits"]
         remaining = "∞" if is_admin else max(0, CREDIT_LIMIT - used)
@@ -134,7 +116,6 @@ def _build_sidebar():
 
         st.divider()
 
-        # ── Panel de administrador (solo admins) ──────────────────────────
         if st.session_state["is_admin"]:
             if st.button("🛠️ Panel Admin", use_container_width=True):
                 st.session_state["show_admin"] = True
@@ -143,7 +124,6 @@ def _build_sidebar():
                     st.session_state["show_admin"] = False
             st.divider()
 
-        # ── Cerrar sesión ─────────────────────────────────────────────────
         if st.button("🚪 Cerrar sesión", use_container_width=True, type="secondary"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
@@ -155,7 +135,6 @@ def show_generation_flow():
     st.title("🎵 Generador de Música")
     st.markdown("Describe el estilo musical que quieres crear. Subir una melodía de referencia es *opcional*.")
 
-    # ── 1. Prompt de texto (elemento principal) ───────────────────────────
     st.text_area(
         "✍️ Describe el sonido que buscas",
         placeholder=(
@@ -170,7 +149,6 @@ def show_generation_flow():
 
     st.divider()
 
-    # ── 2. Melodía de referencia (opcional) ──────────────────────────────
     audio_to_send: bytes | None = None
 
     with st.expander("🎵 Añadir melodía de referencia (Opcional)", expanded=True):
@@ -192,7 +170,6 @@ def show_generation_flow():
                 icon_size="2x",
             )
 
-        # ── Elegir fuente: archivo tiene prioridad ────────────────────────
         if uploaded is not None:
             raw_audio_bytes = uploaded.read()
             file_id = uploaded.name + str(uploaded.size)
@@ -204,7 +181,6 @@ def show_generation_flow():
             file_id = None
 
         if raw_audio_bytes is not None:
-            # ── Procesar solo si cambió la fuente ─────────────────────────
             if st.session_state.get("_last_file_id") != file_id:
                 with st.spinner("🔄 Procesando audio…"):
                     wav_bytes, audio, sr = process_audio(raw_audio_bytes)
@@ -221,18 +197,15 @@ def show_generation_flow():
                 audio = st.session_state["audio_array"]
                 sr    = st.session_state["sample_rate"]
 
-                # ── Reproductor ───────────────────────────────────────────
                 st.markdown("#### 🔊 Audio procesado")
                 st.audio(st.session_state["wav_bytes"], format="audio/wav")
 
-                # ── Duración y BPM ────────────────────────────────────────
                 duration = get_audio_duration(audio, sr)
                 bpm      = get_bpm(audio, sr)
                 col_dur, col_bpm = st.columns(2)
                 col_dur.metric("⏱️ Duración", f"{duration:.1f} s")
                 col_bpm.metric("🥁 BPM detectado", bpm if bpm else "N/A")
 
-                # ── Slider de recorte ─────────────────────────────────────
                 if duration > 30:
                     start_sec = st.slider(
                         "Selecciona el inicio del fragmento (segundos)",
@@ -246,7 +219,6 @@ def show_generation_flow():
                     start_sec = 0.0
                 st.session_state["start_sec"] = start_sec
 
-                # ── Análisis de melodía ───────────────────────────────────
                 if st.button("🎹 Analizar melodía", use_container_width=False):
                     with st.spinner("🔍 Extrayendo pitch…"):
                         times, freqs, notes = get_pitch_curve(audio, sr)
@@ -265,34 +237,27 @@ def show_generation_flow():
                     )
                     st.plotly_chart(fig, use_container_width=True)
 
-                # ── Preparar bytes recortados para la API ─────────────────
                 _, wav_buf = trim_audio(audio, sr, start_sec=st.session_state.get("start_sec", 0.0))
                 audio_to_send = wav_buf.read()
 
     st.divider()
-
-    # ── 3. Botón de generación (siempre visible) ──────────────────────────
     if st.button("🚀 Generar música", type="primary", use_container_width=True):
-        # a. Guard de créditos diarios (admins tienen pase ilimitado)
         is_admin = st.session_state.get("is_admin", False)
         if st.session_state["credits"] >= CREDIT_LIMIT and not is_admin:
             st.warning("⏱️ Límite diario alcanzado. Vuelve mañana para más generaciones.")
             return
 
-        # b. Validar prompt
         user_prompt = st.session_state.get("prompt_text", "").strip()
         if not user_prompt:
             st.warning("⚠️ Escribe una descripción antes de generar.")
             return
 
-        # c. Llamada a la API
         with st.spinner("🎵 Generando tu canción con IA…"):
             success, output_url, cost = generate_music(
                 prompt=user_prompt,
                 wav_bytes=audio_to_send,
             )
 
-        # d. Éxito
         if success and output_url:
             user_id     = st.session_state["user_id"]
             new_credits = st.session_state["credits"] + 1
@@ -304,14 +269,9 @@ def show_generation_flow():
             show_result(output_url, user_prompt)
             st.balloons()
 
-        # e. Fallo
         else:
             st.error("❌ Error al generar. Intenta de nuevo.")
 
-
-# ---------------------------------------------------------------------------
-# 6. Resultado de generación
-# ---------------------------------------------------------------------------
 
 def show_result(output_url: str, prompt_text: str) -> None:
     """
@@ -357,10 +317,6 @@ def show_main_app():
     else:
         show_generation_flow()
 
-
-# ---------------------------------------------------------------------------
-# 6. Enrutamiento
-# ---------------------------------------------------------------------------
 if not st.session_state["logged_in"]:
     show_auth_page()
 else:

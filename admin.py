@@ -11,7 +11,7 @@ def show_admin_panel() -> None:
         st.session_state["show_admin"] = False
         st.rerun()
 
-    st.title("👑 Panel de Control")
+    st.title("Panel de Control")
     st.divider()
 
     # ── Carga de datos ────────────────────────────────────────────────────

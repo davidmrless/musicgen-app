@@ -8,18 +8,11 @@ load_dotenv()
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]
 
-# ---------------------------------------------------------------------------
-# 1. Cliente Supabase (singleton ligero — una instancia por proceso)
-# ---------------------------------------------------------------------------
 
 def get_client() -> Client:
     """Retorna un cliente Supabase inicializado con las credenciales del entorno."""
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
-# ---------------------------------------------------------------------------
-# 2. Consultas de usuarios
-# ---------------------------------------------------------------------------
 
 def get_user_by_username(username: str) -> dict | None:
     """Busca un usuario por su username. Retorna el dict del primer resultado o None."""
@@ -38,10 +31,6 @@ def get_user_by_username(username: str) -> dict | None:
         print(f"[database] get_user_by_username error: {e}")
         return None
 
-
-# ---------------------------------------------------------------------------
-# 3. Gestión de créditos
-# ---------------------------------------------------------------------------
 
 def update_credits(user_id: str, new_count: int, new_date: str) -> dict | None:
     """
@@ -80,7 +69,6 @@ def reset_credits_if_new_day(user: dict) -> dict:
             updated = update_credits(user["id"], 0, today)
             if updated:
                 return updated
-            # Si el update falló, devolvemos el user original sin crash
             user["credits_used_today"] = 0
             user["last_credit_reset"] = today
 
@@ -89,10 +77,6 @@ def reset_credits_if_new_day(user: dict) -> dict:
         print(f"[database] reset_credits_if_new_day error: {e}")
         return user
 
-
-# ---------------------------------------------------------------------------
-# 4. Log de generaciones
-# ---------------------------------------------------------------------------
 
 def log_generation(
     user_id: str,
@@ -119,10 +103,6 @@ def log_generation(
         print(f"[database] log_generation error: {e}")
         return None
 
-
-# ---------------------------------------------------------------------------
-# 5. Estadísticas globales (panel de administrador)
-# ---------------------------------------------------------------------------
 
 def get_all_stats() -> list[dict] | None:
     """

@@ -7,9 +7,6 @@ load_dotenv()
 
 INVITE_CODE: str = os.environ.get("INVITE_CODE", "")
 
-# ---------------------------------------------------------------------------
-# 1. Utilidades de contraseña
-# ---------------------------------------------------------------------------
 
 def hash_password(password: str) -> str:
     """Hashea una contraseña en texto plano usando bcrypt. Retorna el hash como str."""
@@ -22,10 +19,6 @@ def verify_password(password: str, hashed: str) -> bool:
     """Verifica que password coincida con el hash almacenado. Retorna bool."""
     return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 
-
-# ---------------------------------------------------------------------------
-# 2. Registro
-# ---------------------------------------------------------------------------
 
 def register_user(
     username: str,
@@ -40,11 +33,9 @@ def register_user(
         (True,  "Registro exitoso")            → éxito
         (False, "<mensaje de error>")          → fallo
     """
-    # Validar código de invitación
     if invite_code != INVITE_CODE:
         return False, "Código de invitación incorrecto."
 
-    # Hashear contraseña antes de persistir
     password_hash = hash_password(password)
 
     try:
@@ -62,7 +53,6 @@ def register_user(
             return True, "Registro exitoso."
         return False, "No se pudo crear el usuario. Intenta de nuevo."
     except Exception as e:
-        # Detectar violaciones de unicidad (username / email duplicados)
         error_msg = str(e).lower()
         if "unique" in error_msg or "duplicate" in error_msg:
             if "username" in error_msg:
@@ -71,10 +61,6 @@ def register_user(
                 return False, "Ese correo electrónico ya está registrado."
         return False, f"Error al registrar: {e}"
 
-
-# ---------------------------------------------------------------------------
-# 3. Login
-# ---------------------------------------------------------------------------
 
 def login_user(
     username: str,
@@ -96,7 +82,6 @@ def login_user(
     if not verify_password(password, user["password_hash"]):
         return False, None, "Contraseña incorrecta."
 
-    # Resetear créditos si es un nuevo día
     user = reset_credits_if_new_day(user)
 
     return True, user, "OK"

@@ -5,9 +5,6 @@ import plotly.graph_objects as go
 FMIN = librosa.note_to_hz("C2")  # ~65.4 Hz
 FMAX = librosa.note_to_hz("C7")  # ~2093 Hz
 
-# ---------------------------------------------------------------------------
-# 1. Detección de BPM
-# ---------------------------------------------------------------------------
 
 def get_bpm(audio: np.ndarray, sr: int) -> float | None:
     """
@@ -17,17 +14,12 @@ def get_bpm(audio: np.ndarray, sr: int) -> float | None:
     """
     try:
         tempo, _ = librosa.beat.beat_track(y=audio, sr=sr)
-        # beat_track puede devolver un array en versiones recientes de librosa
         bpm = float(np.atleast_1d(tempo)[0])
         return round(bpm, 1)
     except Exception as e:
         print(f"[music_analysis] get_bpm error: {e}")
         return None
 
-
-# ---------------------------------------------------------------------------
-# 2. Extracción de curva de tono (pitch)
-# ---------------------------------------------------------------------------
 
 def get_pitch_curve(
     audio: np.ndarray,
@@ -47,7 +39,6 @@ def get_pitch_curve(
         (None, None, None) si ocurre un error.
     """
     try:
-        # ── pYIN (probabilístico, preferable) ─────────────────────────────
         if hasattr(librosa, "pyin"):
             f0, voiced_flag, _ = librosa.pyin(
                 audio,
@@ -56,15 +47,12 @@ def get_pitch_curve(
                 fmax=FMAX,
             )
         else:
-            # Fallback a YIN determinístico
             f0 = librosa.yin(audio, fmin=FMIN, fmax=FMAX, sr=sr)
             voiced_flag = f0 > 0
 
-        # ── Eje de tiempos alineado al número de cuadros ──────────────────
         hop_length = 512  # default de librosa
         times = librosa.times_like(f0, sr=sr, hop_length=hop_length)
 
-        # ── Convertir Hz → nombres de nota (None donde no hay voz) ────────
         note_names: list[str | None] = []
         for freq, voiced in zip(f0, voiced_flag):
             if voiced and not (np.isnan(freq) or freq == 0):
@@ -78,10 +66,6 @@ def get_pitch_curve(
         print(f"[music_analysis] get_pitch_curve error: {e}")
         return None, None, None
 
-
-# ---------------------------------------------------------------------------
-# 3. Visualización Piano Roll
-# ---------------------------------------------------------------------------
 
 _DARK_BG   = "#0e1117"
 _FONT_CLR  = "#ffffff"
@@ -104,7 +88,6 @@ def create_piano_roll_chart(
     Retorna:
         go.Figure lista para st.plotly_chart().
     """
-    # ── 1. Filtrar frames sin pitch ───────────────────────────────────────
     mask = np.array([
         n is not None and not np.isnan(f) and f > 0
         for n, f in zip(notes, frequencies)
@@ -114,7 +97,6 @@ def create_piano_roll_chart(
     f_voiced  = frequencies[mask]
     n_voiced  = [n for n, m in zip(notes, mask) if m]
 
-    # ── Guard: sin notas detectadas ─────────────────────────────────────────
     if len(f_voiced) == 0:
         empty_fig = go.Figure()
         empty_fig.update_layout(
@@ -127,12 +109,9 @@ def create_piano_roll_chart(
         )
         return empty_fig
 
-    # ── 2. Submuestreo ligero (downsample 4×) ─────────────────────────────
     t_ds = t_voiced[::_DOWNSAMPLE]
     f_ds = f_voiced[::_DOWNSAMPLE]
     n_ds = n_voiced[::_DOWNSAMPLE]
-
-    # ── 3. Scatter con color degradado Viridis (Hz → color) ──────────────
     scatter = go.Scatter(
         x=t_ds,
         y=n_ds,
@@ -152,7 +131,6 @@ def create_piano_roll_chart(
         name="Pitch",
     )
 
-    # ── 4. Layout oscuro ──────────────────────────────────────────────────
     layout = go.Layout(
         title=dict(
             text="🎹 Melodía detectada",
@@ -162,14 +140,14 @@ def create_piano_roll_chart(
         plot_bgcolor=_DARK_BG,
         xaxis=dict(
             title="Tiempo (s)",
-            showgrid=False,          # sin gridlines verticales
+            showgrid=False,
             color=_FONT_CLR,
             tickfont=dict(color=_FONT_CLR),
         ),
         yaxis=dict(
             title="Nota",
             showgrid=True,
-            gridcolor="#2a2d3a",     # grid horizontal sutil
+            gridcolor="#2a2d3a",
             color=_FONT_CLR,
             tickfont=dict(color=_FONT_CLR),
         ),
